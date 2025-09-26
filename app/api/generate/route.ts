@@ -13,6 +13,7 @@ const bodySchema = z.object({
 })
 
 function fallbackTemplate(input: z.infer<typeof bodySchema>): string {
+	console.log("fallbackTemplate called");
 	const first = (input.jobDescription.trim().split('\n')[0] || '').slice(0, 140)
 	const skills = input.skills?.join(', ') || ''
 	const links = (input.portfolioLinks || []).map((l) => `- ${l}`).join('\n') || '- Available upon request'
@@ -30,28 +31,41 @@ function fallbackTemplate(input: z.infer<typeof bodySchema>): string {
 
 export async function POST(req: NextRequest) {
 	try {
-		const json = await req.json()
-    const input = bodySchema.parse(json)
-    const gemini = getGemini()
-    if (!gemini) {
-			return NextResponse.json({ proposal: fallbackTemplate(input), usedLLM: false })
+		const json = await req.json();
+		const input = bodySchema.parse(json);
+		const gemini = getGemini();
+		console.log("allo", gemini);
+
+		if (!gemini) {
+			return NextResponse.json({ proposal: fallbackTemplate(input), usedLLM: false });
 		}
 
-    const prompt = `You are an expert freelance proposal writer. Write a tailored proposal.\n` +
+		const prompt = `You are an expert freelance proposal writer. Write a tailored proposal.\n` +
 			`Use the ${input.style} tone. Keep it under 450-650 words.\n` +
 			`Include: (1) understanding, (2) a 3-5 step plan, (3) 2-4 credentials/links, (4) timeline + CTA.\n\n` +
 			`Freelancer:\nName: ${input.name}\nTitle: ${input.title}\nSkills: ${(input.skills || []).join(', ')}\nPortfolio links:\n${(input.portfolioLinks || []).map((l) => `- ${l}`).join('\n') || '- (none provided)'}\n\n` +
-			`Job Description:\n${input.jobDescription}\n\n`
-    try {
-      const result = await gemini.generateContent([{ text: 'You write concise, winning freelance proposals.' }, { text: prompt }])
-      const text = (result.response?.text?.() || '').trim()
-      return NextResponse.json({ proposal: text || fallbackTemplate(input), usedLLM: Boolean(text) })
-    } catch (e: any) {
-      return NextResponse.json({ proposal: fallbackTemplate(input), usedLLM: false })
-    }
+			`Job Description:\n${input.jobDescription}\n\n`;
+
+		try {
+			const result = await gemini.generateContent(
+				`You write concise, winning freelance proposals.\n\n${prompt}`
+			);
+
+			const response = await result.response;   // <-- important
+			const text = response.text().trim();
+
+			console.log("✅ Gemini output:", text);
+
+			return NextResponse.json({
+				proposal: text || fallbackTemplate(input),
+				usedLLM: Boolean(text)
+			});
+
+		} catch (e: any) {
+			console.error("❌ Gemini error:", e);
+			return NextResponse.json({ proposal: fallbackTemplate(input), usedLLM: false });
+		}
 	} catch (err: any) {
-		return NextResponse.json({ error: err?.message || 'Bad Request' }, { status: 400 })
+		return NextResponse.json({ error: err?.message || 'Bad Request' }, { status: 400 });
 	}
 }
-
-
